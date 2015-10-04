@@ -1,7 +1,7 @@
 # typeform
 A library to automate form creation on typeform.com by way of selenium
 
-```
+```go
 package main
 
 import  (
