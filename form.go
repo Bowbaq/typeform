@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"sourcegraph.com/sourcegraph/go-selenium"
+	"github.com/Bowbaq/go-selenium"
 )
 
 type QuestionType int

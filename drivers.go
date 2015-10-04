@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"time"
 
-	"sourcegraph.com/sourcegraph/go-selenium"
+	"github.com/Bowbaq/go-selenium"
 )
 
 // Wait up to DriverTimeout seconds before the driver is ready to accept requests

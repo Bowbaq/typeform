@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"sourcegraph.com/sourcegraph/go-selenium"
+	"github.com/Bowbaq/go-selenium"
 )
 
 var Timeout = 5 * time.Second
