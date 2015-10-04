@@ -13,6 +13,7 @@ type QuestionType int
 const (
 	MultipleChoice QuestionType = iota
 	YesNo
+	Statement
 )
 
 type form struct {
@@ -96,6 +97,23 @@ func (f *form) AddYesNoQuestion(question, desc string, opt *YesNoQuestionOptions
 	return f.saveQuestion(question, opt.Required)
 }
 
+type StatementOptions struct {
+	RemoveIcon bool
+}
+
+func (f *form) AddStatement(statement, desc, buttonText string, opt *StatementOptions) int {
+	f.addQuestion(Statement, statement, desc)
+
+	if buttonText != "" {
+		f.t.driverT.Q("#statement_button").SendKeys(buttonText)
+	}
+
+	// Options
+	f.setOption(Statement, opt.RemoveIcon, "quoteMarksEnabled")
+
+	return f.saveQuestion(statement, false)
+}
+
 type question struct {
 	label  string
 	prefix string
@@ -104,6 +122,7 @@ type question struct {
 var questions = map[QuestionType]question{
 	MultipleChoice: {"Multiple choice", "list"},
 	YesNo:          {"Yes / No", "yes_no"},
+	Statement:      {"Statement", "statement"},
 }
 
 func (f *form) addQuestion(typ QuestionType, question, desc string) {
@@ -111,12 +130,16 @@ func (f *form) addQuestion(typ QuestionType, question, desc string) {
 	f.t.ensureURL("https://admin.typeform.com/form/" + f.Id + "/fields")
 
 	q := questions[typ]
+	qSelector := "question"
+	if typ == Statement {
+		qSelector = "content"
+	}
 
 	f.t.driverT.Q("li[data-label='" + q.label + "']").Click()
 
 	// Question
-	f.t.waitFor("#" + q.prefix + "_question")
-	f.t.driver.SwitchFrame(q.prefix + "_question_ifr")
+	f.t.waitFor("#" + q.prefix + "_" + qSelector)
+	f.t.driver.SwitchFrame(q.prefix + "_" + qSelector + "_ifr")
 	f.t.driverT.Q("#tinymce").SendKeys(question)
 	f.t.driver.SwitchFrameParent()
 
