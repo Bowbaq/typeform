@@ -11,7 +11,7 @@ import (
 // Wait up to DriverTimeout seconds before the driver is ready to accept requests
 var DriverTimeout = 5 * time.Second
 
-func ChromeDriver() selenium.WebDriver {
+func ChromeDriver(args ...string) selenium.WebDriver {
 	start := time.Now()
 	cmd := exec.Command("chromedriver")
 	if err := cmd.Start(); err != nil {
@@ -21,7 +21,7 @@ func ChromeDriver() selenium.WebDriver {
 	capabilities := selenium.Capabilities(map[string]interface{}{
 		"browserName": "chrome",
 		"chromeOptions": map[string]interface{}{
-			"args": []string{"--window-position=810,0", "--window-size=810,1030"},
+			"args": args,
 		},
 	})
 
