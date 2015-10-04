@@ -70,7 +70,7 @@ func (f *form) AddMultipleChoiceQuestion(question, desc string, choices []string
 		choice.Q("input[type='text']").SendKeys(c)
 		choice.Q(".add").Click()
 
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 	}
 	f.t.driverT.Q(".choices .choice:last-child .remove").Click()
 
