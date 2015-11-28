@@ -3,18 +3,42 @@ package typeform
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Bowbaq/go-selenium"
 )
 
-type QuestionType int
+type FormElement interface {
+	Q() string
+	Desc() string
+	Logic() []Jump
 
-const (
-	MultipleChoice QuestionType = iota
-	YesNo
-	Statement
-)
+	e() selenium.WebElementT
+	setE(selenium.WebElementT)
+
+	label() string
+	prefix() string
+	selector() string
+}
+
+type BaseQuestion struct {
+	name    string
+	element selenium.WebElementT
+}
+
+func (bq BaseQuestion) e() selenium.WebElementT {
+	return bq.element
+}
+
+func (bq *BaseQuestion) setE(e selenium.WebElementT) {
+	bq.element = e
+}
+
+type Jump struct {
+	When string
+	GoTo string
+}
 
 type form struct {
 	t *Typeform
@@ -53,115 +77,80 @@ func (f *form) Delete() {
 	}
 }
 
-type MultipleChoiceQuestionOptions struct {
-	Required               bool
-	AllowMutipleSelections bool
-	Randomize              bool
-	ForceVerticalAlignment bool
-	AddOtherOption         bool
-}
+func (f *form) Apply(elements []FormElement) {
+	byName := make(map[string]FormElement)
 
-func (f *form) AddMultipleChoiceQuestion(question, desc string, choices []string, opt *MultipleChoiceQuestionOptions) int {
-	f.addQuestion(MultipleChoice, question, desc)
-
-	// Choices
-	for _, c := range choices {
-		choice := f.t.driverT.Q(".choices .choice:last-child")
-		choice.Q("input[type='text']").SendKeys(c)
-		choice.Q(".add").Click()
-
-		time.Sleep(300 * time.Millisecond)
-	}
-	f.t.driverT.Q(".choices .choice:last-child .remove").Click()
-
-	// Options
-	f.setOption(MultipleChoice, opt.Required, "required")
-	f.setOption(MultipleChoice, opt.AllowMutipleSelections, "multiple")
-	f.setOption(MultipleChoice, opt.Randomize, "randomize")
-	f.setOption(MultipleChoice, opt.ForceVerticalAlignment, "vertical")
-	f.setOption(MultipleChoice, opt.AddOtherOption, "other")
-
-	return f.saveQuestion(question, opt.Required)
-}
-
-type YesNoQuestionOptions struct {
-	Required bool
-}
-
-func (f *form) AddYesNoQuestion(question, desc string, opt *YesNoQuestionOptions) int {
-	f.addQuestion(YesNo, question, desc)
-
-	// Options
-	f.setOption(YesNo, opt.Required, "required")
-
-	return f.saveQuestion(question, opt.Required)
-}
-
-type StatementOptions struct {
-	RemoveIcon bool
-}
-
-func (f *form) AddStatement(statement, desc, buttonText string, opt *StatementOptions) int {
-	f.addQuestion(Statement, statement, desc)
-
-	if buttonText != "" {
-		f.t.driverT.Q("#statement_button").SendKeys(buttonText)
+	// Validate
+	for _, e := range elements {
+		if _, exists := byName[e.Q()]; exists {
+			log.Fatalln("Elements must have a unique question name. Duplicate: " + e.Q())
+		}
+		byName[e.Q()] = e
 	}
 
-	// Options
-	f.setOption(Statement, opt.RemoveIcon, "quoteMarksEnabled")
+	for _, e := range elements {
+		for _, jump := range e.Logic() {
+			//TODO: validate when value
+			_, exists := byName[jump.GoTo]
+			if !exists {
+				log.Fatalf("Trying to jump to an unknown question %s from %s\n", jump.GoTo, e.Q())
+			}
+		}
+	}
 
-	return f.saveQuestion(statement, false)
+	// Create elements
+	for _, e := range elements {
+		switch e.(type) {
+		case *MultipleChoiceQuestion:
+			f.AddMultipleChoiceQuestion(e.(*MultipleChoiceQuestion))
+		case *DropDownQuestion:
+			f.AddDropDownQuestion(e.(*DropDownQuestion))
+		case *YesNoQuestion:
+			f.AddYesNoQuestion(e.(*YesNoQuestion))
+		case *StatementContent:
+			f.AddStatementContent(e.(*StatementContent))
+		}
+
+	}
+
+	// Add logic jumps
+	for _, e := range elements {
+		f.HookJumps(e, byName)
+	}
 }
 
-type question struct {
-	label  string
-	prefix string
-}
-
-var questions = map[QuestionType]question{
-	MultipleChoice: {"Multiple choice", "list"},
-	YesNo:          {"Yes / No", "yes_no"},
-	Statement:      {"Statement", "statement"},
-}
-
-func (f *form) addQuestion(typ QuestionType, question, desc string) {
-	log.Println("Adding question:", question)
+func (f *form) createQuestion(q FormElement) {
+	log.Println("Adding question:", q.Q())
 	f.t.ensureURL("https://admin.typeform.com/form/" + f.Id + "/fields")
 
-	q := questions[typ]
-	qSelector := "question"
-	if typ == Statement {
-		qSelector = "content"
-	}
-
-	f.t.driverT.Q("li[data-label='" + q.label + "']").Click()
+	f.t.driverT.Q("li[data-label='" + q.label() + "']").Click()
 
 	// Question
-	f.t.waitFor("#" + q.prefix + "_" + qSelector)
-	f.t.driver.SwitchFrame(q.prefix + "_" + qSelector + "_ifr")
-	f.t.driverT.Q("#tinymce").SendKeys(question)
+	f.t.waitFor("#" + q.prefix() + "_" + q.selector())
+	f.t.driver.SwitchFrame(q.prefix() + "_" + q.selector() + "_ifr")
+	f.t.driverT.Q("#tinymce").SendKeys(q.Q())
 	f.t.driver.SwitchFrameParent()
 
-	if desc != "" {
+	if q.Desc() != "" {
 		// Description
 		f.t.driverT.Q("#description div.coolCheckbox").Click()
-		f.t.waitFor("#" + q.prefix + "_description")
-		f.t.driver.SwitchFrame(q.prefix + "_description_ifr")
-		f.t.driverT.Q("#tinymce").SendKeys(desc)
+		f.t.waitFor("#" + q.prefix() + "_description")
+		f.t.driver.SwitchFrame(q.prefix() + "_description_ifr")
+		f.t.driverT.Q("#tinymce").SendKeys(q.Desc())
 		f.t.driver.SwitchFrameParent()
 	}
 }
 
-func (f *form) setOption(typ QuestionType, enabled bool, suffix string) {
+func (f *form) setOption(q FormElement, enabled bool, suffix string) {
 	if enabled {
-		f.t.driverT.Q("#"+questions[typ].prefix+"_"+suffix).FindElement(selenium.ByXPATH, ".//following-sibling::div").Click()
+		f.t.driverT.Q("#"+q.prefix()+"_"+suffix).FindElement(selenium.ByXPATH, ".//following-sibling::div").Click()
 	}
 }
 
-func (f *form) saveQuestion(question string, required bool) int {
+func (f *form) saveQuestion(q FormElement, required bool) FormElement {
 	f.t.driverT.Q("#submit").Click()
 
+	question := q.Q()
 	if required {
 		question = "* " + question
 	}
@@ -182,10 +171,73 @@ func (f *form) saveQuestion(question string, required bool) int {
 	// Find question
 	for _, label := range f.t.driverT.QAll("li.field span.label") {
 		if label.Text() == question {
-			// TODO: grab actual question #
-			return 0
+			q.setE(label.FindElement(selenium.ByXPATH, ".//ancestor::li"))
 		}
 	}
 
-	return 0
+	return q
+}
+
+func (f *form) HookJumps(from FormElement, byName map[string]FormElement) {
+	from.e().MoveTo(0, 0)
+	time.Sleep(100 * time.Millisecond)
+	from.e().Q(".action-jump").Click()
+
+	f.t.waitFor(".help-wrapper .proceed")
+	proceed := f.t.driverT.Q(".help-wrapper .proceed")
+	if proceed != nil && proceed.IsDisplayed() {
+		proceed.Click()
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	for _, jump := range from.Logic() {
+		to := byName[jump.GoTo]
+
+		if jump.When != "DEFAULT" {
+			add_jump, err := f.t.driver.Q(".admin-button.add-jump")
+			if err != nil || !add_jump.T(f.t.logger).IsDisplayed() {
+				add_jump, _ = f.t.driver.Q(".row.jump.sortable:nth-last-child(2) .jump-actions .add")
+			}
+			add_jump.Click()
+
+			time.Sleep(200 * time.Millisecond)
+			f.t.driverT.Q(".row.jump.sortable:nth-last-child(2) .cell.value").Click()
+
+			time.Sleep(200 * time.Millisecond)
+			for _, option := range f.t.driverT.QAll(".select2-result-label") {
+				if option.Text() == jump.When {
+					option.Click()
+					break
+				}
+			}
+
+			time.Sleep(200 * time.Millisecond)
+			f.t.driverT.Q(".row.jump.sortable:nth-last-child(2) .cell.jumps-header").Click()
+
+			time.Sleep(500 * time.Millisecond)
+			for _, option := range f.t.driverT.QAll(".select2-result-label") {
+				if strings.HasSuffix(option.Text(), to.Q()) {
+					option.Click()
+					break
+				}
+			}
+		} else {
+			f.t.driverT.Q(".row.jump.otherwise .cell.destination").Click()
+
+			time.Sleep(200 * time.Millisecond)
+			for _, option := range f.t.driverT.QAll(".select2-result-selectable") {
+				if strings.HasSuffix(option.Text(), to.Q()) {
+					option.Click()
+					break
+				}
+			}
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	f.t.driverT.Q(".admin-button.save").Click()
+
+	time.Sleep(500 * time.Millisecond)
 }
